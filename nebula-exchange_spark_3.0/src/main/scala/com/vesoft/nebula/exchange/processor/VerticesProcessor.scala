@@ -154,6 +154,8 @@ class VerticesProcessor(spark: SparkSession,
         sstKeyValueData = customRepartition(spark, sstKeyValueData, partitionNum)
       }
 
+      var taskid = spark.conf.get("spark.hadoop.lineage.taskId").toLong
+
       sstKeyValueData
         .toDF("key", "value")
         .sortWithinPartitions("key")
@@ -163,7 +165,9 @@ class VerticesProcessor(spark: SparkSession,
                                         fileBaseConfig,
                                         partitionNum,
                                         namenode,
-                                        batchFailure)
+                                        batchFailure,
+                                        space,
+                                        taskid)
         }
     } else {
       val streamFlag = data.isStreaming

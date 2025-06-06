@@ -7,6 +7,8 @@ package com.vesoft.exchange.common.writer
 
 import java.nio.{ByteBuffer, ByteOrder}
 import java.nio.file.{Files, Paths}
+import java.text.SimpleDateFormat
+import java.util.{Calendar, Date}
 
 import com.vesoft.exchange.common.config.FileBaseSinkConfigEntry
 import com.vesoft.exchange.common.utils.HDFSUtils
@@ -67,13 +69,18 @@ class GenerateSstFile extends Serializable {
                     fileBaseConfig: FileBaseSinkConfigEntry,
                     partitionNum: Int,
                     namenode: String,
-                    batchFailure: LongAccumulator): Unit = {
+                    batchFailure: LongAccumulator,
+                    space: String,
+                    taskid: Long): Unit = {
     val taskID                  = TaskContext.get().taskAttemptId()
     var writer: NebulaSSTWriter = null
     var currentPart             = -1
     var currentPrefix           = -1
     val localPath               = fileBaseConfig.localPath
     val remotePath              = fileBaseConfig.remotePath
+
+    // println(nowday)
+
     try {
       iterator.foreach { vertex =>
         val key   = vertex.getAs[Array[Byte]](0)
@@ -94,7 +101,7 @@ class GenerateSstFile extends Serializable {
             writer.close()
             val localFile = s"$localPath/$currentPart-$taskID-$currentPrefix.sst"
             HDFSUtils.upload(localFile,
-                             s"$remotePath/${currentPart}/$currentPart-$taskID-$currentPrefix.sst",
+                             s"$remotePath/$space/$taskid/${currentPart}/$currentPart-$taskID-$currentPrefix.sst",
                              namenode)
             Files.delete(Paths.get(localFile))
           }
@@ -116,7 +123,7 @@ class GenerateSstFile extends Serializable {
         writer.close()
         val localFile = s"$localPath/$currentPart-$taskID-$currentPrefix.sst"
         HDFSUtils.upload(localFile,
-                         s"$remotePath/${currentPart}/$currentPart-$taskID-$currentPrefix.sst",
+                         s"$remotePath/$space/$taskid/$currentPart/$currentPart-$taskID-$currentPrefix.sst",
                          namenode)
         Files.delete(Paths.get(localFile))
       }
