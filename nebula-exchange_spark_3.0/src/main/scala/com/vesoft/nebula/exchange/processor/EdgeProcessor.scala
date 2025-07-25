@@ -104,6 +104,7 @@ class EdgeProcessor(spark: SparkSession,
     val fieldTypeMap    = NebulaUtils.getDataSourceFieldType(edgeConfig, space, metaProvider)
     val isVidStringType = metaProvider.getVidType(space) == VidType.STRING
     val partitionNum    = metaProvider.getPartNumber(space)
+    // val spaceid         = metaProvider.getSpaceId(space);
 
     if (edgeConfig.dataSinkConfigEntry.category == SinkCategory.SST) {
       val fileBaseConfig = edgeConfig.dataSinkConfigEntry.asInstanceOf[FileBaseSinkConfigEntry]
@@ -136,7 +137,7 @@ class EdgeProcessor(spark: SparkSession,
         sstKeyValueData = customRepartition(spark, sstKeyValueData, partitionNum)
       }
 
-      var taskid = spark.conf.get("spark.hadoop.lineage.taskId").toLong
+      var taskid = spark.conf.get("spark.hadoop.lineage.das.execId").toLong;
 
       sstKeyValueData
         .toDF("key", "value")

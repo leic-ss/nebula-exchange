@@ -59,7 +59,6 @@ class NebulaSSTWriter(path: String) extends Writer {
     options.close()
     env.close()
   }
-
 }
 
 class GenerateSstFile extends Serializable {
@@ -70,12 +69,14 @@ class GenerateSstFile extends Serializable {
                     partitionNum: Int,
                     namenode: String,
                     batchFailure: LongAccumulator,
-                    space: String,
+                    spacename: String,
                     taskid: Long): Unit = {
     val taskID                  = TaskContext.get().taskAttemptId()
     var writer: NebulaSSTWriter = null
     var currentPart             = -1
     var currentPrefix           = -1
+    var filesize: Long               = 0
+    var fileIndex: Int               = 0
     val localPath               = fileBaseConfig.localPath
     val remotePath              = fileBaseConfig.remotePath
 
@@ -96,22 +97,25 @@ class GenerateSstFile extends Serializable {
         // 1: vertex key with tag, 7: vertex key without tag
         val prefix: Int = ByteBuffer.wrap(key, 0, 1).get
 
-        if (part != currentPart || prefix != currentPrefix) {
+        if (filesize > 67108864 || part != currentPart || prefix != currentPrefix) {
           if (writer != null) {
             writer.close()
-            val localFile = s"$localPath/$currentPart-$taskID-$currentPrefix.sst"
+            val localFile = s"$localPath/$currentPart-$fileIndex-$taskid-$taskID-$currentPrefix.sst"
             HDFSUtils.upload(localFile,
-                             s"$remotePath/$space/$taskid/${currentPart}/$currentPart-$taskID-$currentPrefix.sst",
+                             s"$remotePath/$taskid/$spacename/${currentPart}/$currentPart-$fileIndex-$taskid-$taskID-$currentPrefix.sst",
                              namenode)
             Files.delete(Paths.get(localFile))
           }
+          fileIndex += 1
           currentPart = part
           currentPrefix = prefix
-          val tmp = s"$localPath/$currentPart-$taskID-$currentPrefix.sst"
+          val tmp = s"$localPath/$currentPart-$fileIndex-$taskid-$taskID-$currentPrefix.sst"
           writer = new NebulaSSTWriter(tmp)
           writer.prepare()
         }
         writer.write(key, value)
+        val tmpfile = s"$localPath/$currentPart-$fileIndex-$taskid-$taskID-$currentPrefix.sst"
+        filesize = Files.size(Paths.get(tmpfile))
       }
     } catch {
       case e: Throwable => {
@@ -121,9 +125,9 @@ class GenerateSstFile extends Serializable {
     } finally {
       if (writer != null) {
         writer.close()
-        val localFile = s"$localPath/$currentPart-$taskID-$currentPrefix.sst"
+        val localFile = s"$localPath/$currentPart-$fileIndex-$taskid-$taskID-$currentPrefix.sst"
         HDFSUtils.upload(localFile,
-                         s"$remotePath/$space/$taskid/$currentPart/$currentPart-$taskID-$currentPrefix.sst",
+                         s"$remotePath/$taskid/$spacename/$currentPart/$currentPart-$fileIndex-$taskid-$taskID-$currentPrefix.sst",
                          namenode)
         Files.delete(Paths.get(localFile))
       }

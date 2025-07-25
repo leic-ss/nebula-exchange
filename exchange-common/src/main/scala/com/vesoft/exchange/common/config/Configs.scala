@@ -19,6 +19,9 @@ import scala.collection.mutable.ListBuffer
 import scala.collection.JavaConverters._
 import scala.util.control.Breaks.break
 
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+
 object Type extends Enumeration {
   type Type = Value
   val VERTEX = Value("VERTEX")
@@ -388,6 +391,8 @@ object Configs {
         val sinkConfig   = dataSinkConfig(sinkCategory, nebulaConfig)
         LOG.info(s"Sink Config ${sourceConfig}")
 
+        val cmd = getOrElse(tagConfig, "cmd", "")
+
         val batch = getOrElse(tagConfig, "batch", DEFAULT_BATCH)
         val checkPointPath =
           if (tagConfig.hasPath("check_point_path")) Some(tagConfig.getString("check_point_path"))
@@ -401,6 +406,7 @@ object Configs {
 
         LOG.info(s"name ${tagName}  batch ${batch}")
         val entry = TagConfigEntry(tagName,
+                                   cmd,
                                    sourceConfig,
                                    sinkConfig,
                                    fields,
@@ -626,7 +632,12 @@ object Configs {
                                   Some(separator),
                                   Some(header))
       case SourceCategory.HIVE =>
-        HiveSourceConfigEntry(SourceCategory.HIVE, config.getString("exec"))
+        val localDateTime = LocalDateTime.now().minusDays(1);
+        val dataTimeFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+        val dtstr = dataTimeFormat.format(localDateTime)
+        val conditions = "dt = '" + dtstr + "'"
+        var sentence = config.getString("exec")
+        HiveSourceConfigEntry(SourceCategory.HIVE, sentence.format(conditions))
       case SourceCategory.NEO4J =>
         val name = config.getString("name")
         val checkPointPath =

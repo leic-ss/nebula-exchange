@@ -51,6 +51,7 @@ sealed trait SchemaConfigEntry {
   * @param checkPointPath
   */
 case class TagConfigEntry(override val name: String,
+                          cmd: String,
                           override val dataSourceConfigEntry: DataSourceConfigEntry,
                           override val dataSinkConfigEntry: DataSinkConfigEntry,
                           override val fields: List[String],
@@ -63,7 +64,7 @@ case class TagConfigEntry(override val name: String,
                           repartitionWithNebula: Boolean = true,
                           enableTagless: Boolean = false)
     extends SchemaConfigEntry {
-  require(name.trim.nonEmpty && vertexField.trim.nonEmpty && batch > 0)
+  require(name.trim.nonEmpty && cmd.trim.nonEmpty && vertexField.trim.nonEmpty && batch > 0)
 
   override def toString: String = {
     s"Tag name: $name, " +

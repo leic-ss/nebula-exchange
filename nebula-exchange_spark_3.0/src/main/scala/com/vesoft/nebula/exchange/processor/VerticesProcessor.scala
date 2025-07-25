@@ -112,6 +112,26 @@ class VerticesProcessor(spark: SparkSession,
     val fieldTypeMap    = NebulaUtils.getDataSourceFieldType(tagConfig, space, metaProvider)
     val isVidStringType = metaProvider.getVidType(space) == VidType.STRING
     val partitionNum    = metaProvider.getPartNumber(space)
+    // val spaceid         = metaProvider.getSpaceId(space);
+
+    {
+      val graphProvider = new GraphProvider(config.databaseConfig.getGraphAddress,
+                                            config.connectionConfig.timeout,
+                                            config.sslConfig)
+      val session     = graphProvider.getGraphClient(config.userConfig)
+      val switchResult = graphProvider.switchSpace(session, config.databaseConfig.space)
+      if (!switchResult.isSucceeded) {
+        graphProvider.releaseGraphClient(session)
+        throw new RuntimeException("Switch Failed for " + switchResult.getErrorMessage)
+      }
+
+      val result = graphProvider.submit(session, tagConfig.cmd)
+      if (!result.isSucceeded) {
+        throw new RuntimeException("Submit Sentence Failed for " + result.getErrorMessage)
+      }
+      LOG.info(s"Submit Sentence Success for ${tagConfig.cmd}")
+      graphProvider.close()
+    }
 
     if (tagConfig.dataSinkConfigEntry.category == SinkCategory.SST) {
       val fileBaseConfig = tagConfig.dataSinkConfigEntry.asInstanceOf[FileBaseSinkConfigEntry]
@@ -154,7 +174,8 @@ class VerticesProcessor(spark: SparkSession,
         sstKeyValueData = customRepartition(spark, sstKeyValueData, partitionNum)
       }
 
-      var taskid = spark.conf.get("spark.hadoop.lineage.taskId").toLong
+      // var taskid = spark.conf.get("spark.hadoop.lineage.execId").toLong
+      var taskid = spark.conf.get("spark.hadoop.lineage.das.execId").toLong;
 
       sstKeyValueData
         .toDF("key", "value")

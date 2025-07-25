@@ -5,6 +5,17 @@
 
 package com.vesoft.nebula.exchange
 
+import java.io.BufferedReader
+import java.io.IOException
+import java.io.InputStream
+import java.io.InputStreamReader
+import java.net.HttpURLConnection
+import java.net.URL
+
+import java.nio.file.Paths
+
+import java.io._
+import org.json._
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import java.io.File
 
@@ -70,8 +81,53 @@ object Exchange {
         sys.exit(-1)
     }
 
-    val configs = Configs.parse(new File(c.config))
-    LOG.info(s"Config ${configs}")
+    val urlstrBuilder = new StringBuilder
+    urlstrBuilder.append("http://das.music.service.163.org/pandora/api/open/file/v2/getbyname?name=")
+    urlstrBuilder.append(c.config)
+    val urlString = urlstrBuilder.toString()
+    LOG.warn(s"urlString ${urlString}")
+
+    val url = new URL(urlString)
+    val connection = url.openConnection().asInstanceOf[HttpURLConnection]
+    connection.setRequestMethod("GET")
+    connection.connect()
+    val responseCode = connection.getResponseCode()
+    LOG.warn(s"responseCode ${responseCode}")
+
+    val strBuilder = new StringBuilder
+    if (responseCode == HttpURLConnection.HTTP_OK) {
+      val reader = new BufferedReader(new InputStreamReader(connection.getInputStream))
+      var line: String = reader.readLine()
+      while (line != null) {
+        strBuilder.append(line)
+        line = reader.readLine()
+      }
+      reader.close()
+    } else {
+      LOG.error(s"responseCode ${responseCode} ${c.config}")
+      sys.exit(-1)
+    }
+    connection.disconnect()
+
+    val content = strBuilder.toString()
+    LOG.warn(s"content ${content}")
+
+    val jsonObject:JSONObject =new JSONObject(content);
+    if (jsonObject.getInt("code") != 200) {
+      LOG.error(s"file not exist! ${c.config}")
+      sys.exit(-1)
+    }
+
+    var dataobject = jsonObject.getJSONObject("data")
+    var confobject = dataobject.getJSONObject("conf")
+    var filepath = confobject.getString("path")
+    LOG.info(s"filepath ${filepath}")
+
+    val filePath = new File(filepath)
+    val fileName = filePath.getName
+
+    val configs = Configs.parse(new File(fileName))
+    LOG.info(s"Config ${c.config} ${fileName}")
 
     val session = SparkSession
       .builder()
@@ -135,6 +191,8 @@ object Exchange {
         LOG.info(s"field keys: ${fieldKeys.mkString(", ")}")
         val nebulaKeys = tagConfig.nebulaFields
         LOG.info(s"nebula keys: ${nebulaKeys.mkString(", ")}")
+        val hiveConfig = tagConfig.dataSourceConfigEntry.asInstanceOf[HiveSourceConfigEntry]
+        LOG.info(s"hive exec sentence for ${hiveConfig.sentence}")
 
         val fields = tagConfig.vertexField :: tagConfig.fields
         val data   = createDataSource(spark, tagConfig.dataSourceConfigEntry, fields)

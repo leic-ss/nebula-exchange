@@ -114,6 +114,14 @@ class MetaProvider(addresses: List[HostAndPort],
     spaceItem.getProperties.getVid_type.getType_length
   }
 
+  def getSpaceId(space: String): Int = {
+    val spaceItem = metaClient.getSpace(space);
+    if (spaceItem == null) {
+      throw new IllegalArgumentException(s"space $space does not exist.")
+    }
+    spaceItem.getSpace_id
+  }
+
   def getTagItem(space: String, tag: String): TagItem = {
     val tagItemList = metaClient.getTags(space).asScala
     for (tagItem: TagItem <- tagItemList) {
