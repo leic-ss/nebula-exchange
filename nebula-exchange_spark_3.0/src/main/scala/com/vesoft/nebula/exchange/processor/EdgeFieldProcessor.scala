@@ -34,16 +34,17 @@ import org.apache.spark.util.LongAccumulator
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
+import scala.collection.mutable.HashMap
 
-class EdgeProcessor(spark: SparkSession,
-                    data: DataFrame,
-                    edgeConfig: EdgeConfigEntry,
-                    fieldKeys: List[String],
-                    nebulaKeys: List[String],
-                    config: Configs,
-                    batchSuccess: LongAccumulator,
-                    batchFailure: LongAccumulator)
-    extends Processor {
+class EdgeFieldProcessor(spark: SparkSession,
+                         data: DataFrame,
+                         edgeConfig: EdgeConfigEntry,
+                         fieldKeys: List[String],
+                         nebulaKeys: List[String],
+                         config: Configs,
+                         batchSuccess: LongAccumulator,
+                         batchFailure: LongAccumulator)
+  extends Processor {
 
   @transient
   private[this] lazy val LOG = Logger.getLogger(this.getClass)
@@ -54,13 +55,13 @@ class EdgeProcessor(spark: SparkSession,
   private def processEachPartition(iterator: Iterator[Edge]): Unit = {
     val graphProvider =
       new GraphProvider(config.databaseConfig.getGraphAddress,
-                        config.connectionConfig.timeout,
-                        config.sslConfig)
+        config.connectionConfig.timeout,
+        config.sslConfig)
     val writer = new NebulaGraphClientWriter(config.databaseConfig,
-                                             config.userConfig,
-                                             config.rateConfig,
-                                             edgeConfig,
-                                             graphProvider)
+      config.userConfig,
+      config.rateConfig,
+      edgeConfig,
+      graphProvider)
     val errorBuffer = ArrayBuffer[String]()
 
     writer.prepare()
@@ -100,34 +101,22 @@ class EdgeProcessor(spark: SparkSession,
 
     val timeout         = config.connectionConfig.timeout
     val retry           = config.connectionConfig.retry
-    // val spaceid         = metaProvider.getSpaceId(space);
-
-    {
-      val graphProvider = new GraphProvider(config.databaseConfig.getGraphAddress,
-                                            config.connectionConfig.timeout,
-                                            config.sslConfig)
-      val session     = graphProvider.getGraphClient(config.userConfig)
-      val switchResult = graphProvider.switchSpace(session, config.databaseConfig.space)
-      if (!switchResult.isSucceeded) {
-        graphProvider.releaseGraphClient(session)
-        throw new RuntimeException("Switch Failed for " + switchResult.getErrorMessage)
-      }
-
-      val sentence = edgeConfig.cmd.format(edgeConfig.name)
-
-      val result = graphProvider.submit(session, sentence)
-      if (!result.isSucceeded) {
-        throw new RuntimeException("Submit Sentence Failed for " + result.getErrorMessage)
-      }
-      LOG.info(s"Submit Sentence Success for ${sentence}")
-      graphProvider.close()
-    }
-
     val metaProvider    = new MetaProvider(address, timeout, retry, config.sslConfig)
-    val fieldTypeMap    = NebulaUtils.getDataSourceFieldType(edgeConfig, space, metaProvider)
+    // val fieldTypeMap    = NebulaUtils.getDataSourceFieldType(edgeConfig, space, metaProvider)
     val isVidStringType = metaProvider.getVidType(space) == VidType.STRING
     val partitionNum    = metaProvider.getPartNumber(space)
-    
+    // val spaceid         = metaProvider.getSpaceId(space);
+
+    val graphProvider = new GraphProvider(config.databaseConfig.getGraphAddress,
+      config.connectionConfig.timeout,
+      config.sslConfig)
+    val session     = graphProvider.getGraphClient(config.userConfig)
+    val switchResult = graphProvider.switchSpace(session, config.databaseConfig.space)
+    if (!switchResult.isSucceeded) {
+      graphProvider.releaseGraphClient(session)
+      throw new RuntimeException("Switch Failed for " + switchResult.getErrorMessage)
+    }
+
     if (edgeConfig.dataSinkConfigEntry.category == SinkCategory.SST) {
       val fileBaseConfig = edgeConfig.dataSinkConfigEntry.asInstanceOf[FileBaseSinkConfigEntry]
       val namenode       = fileBaseConfig.fsName.orNull
@@ -135,19 +124,50 @@ class EdgeProcessor(spark: SparkSession,
 
       val vidType     = metaProvider.getVidType(space)
       val spaceVidLen = metaProvider.getSpaceVidLen(space)
-      val edgeItem    = metaProvider.getEdgeItem(space, edgeName)
+      // val edgeItem    = metaProvider.getEdgeItem(space, edgeName)
+      var edgeCache = new HashMap[String, EdgeItem]
+      var fieldTypeMapCache = new HashMap[String, Map[String, Int]]
+
+      val distintdata = data.dropDuplicates(edgeConfig.edgeField)
+      distintdata
+        .collect()
+        .foreach { row =>
+          val edgeIndex: Int = row.schema.fieldIndex(edgeConfig.edgeField)
+          var edgename: String = row.get(edgeIndex).toString.trim
+          if (edgename.equals(DEFAULT_EMPTY_VALUE)) {
+            edgename = "null"
+          }
+          var edgeitem = edgeCache.getOrElse(edgename, null)
+          if (edgeitem == null) {
+            val sentence = edgeConfig.cmd.format(edgename)
+            val result = graphProvider.submit(session, sentence)
+            if (!result.isSucceeded) {
+              throw new RuntimeException("Submit Sentence Failed for " + result.getErrorMessage)
+            }
+            LOG.info(s"Submit Sentence Success for ${sentence}")
+
+            edgeitem    = metaProvider.getEdgeItem(space, edgename)
+            edgeCache.put(edgename, edgeitem)
+          }
+
+          var fieldTypeMap = fieldTypeMapCache.getOrElse(edgename, null)
+          if (fieldTypeMap == null) {
+            fieldTypeMap    = NebulaUtils.getEdgeFieldDataSourceFieldType(edgeConfig, space, edgename, metaProvider)
+            fieldTypeMapCache.put(edgename, fieldTypeMap)
+          }
+        }
 
       val distintData = if (edgeConfig.rankingField.isDefined) {
         data.dropDuplicates(edgeConfig.sourceField,
-                            edgeConfig.targetField,
-                            edgeConfig.rankingField.get)
+          edgeConfig.targetField,
+          edgeConfig.rankingField.get)
       } else {
         data.dropDuplicates(edgeConfig.sourceField, edgeConfig.targetField)
       }
       var sstKeyValueData = distintData
         .mapPartitions { iter =>
           iter.map { row =>
-            encodeEdge(row, partitionNum, vidType, spaceVidLen, edgeItem, fieldTypeMap)
+            encodeEdge(row, partitionNum, vidType, spaceVidLen, edgeCache, fieldTypeMapCache)
           }
         }(Encoders.tuple(Encoders.BINARY, Encoders.BINARY, Encoders.BINARY))
         .flatMap(line => {
@@ -167,14 +187,16 @@ class EdgeProcessor(spark: SparkSession,
         .foreachPartition { iterator: Iterator[Row] =>
           val generateSstFile = new GenerateSstFile
           generateSstFile.writeSstFiles(iterator,
-                                        fileBaseConfig,
-                                        partitionNum,
-                                        namenode,
-                                        batchFailure,
-                                        space,
-                                        taskid)
+            fileBaseConfig,
+            partitionNum,
+            namenode,
+            batchFailure,
+            space,
+            taskid)
         }
+
     } else {
+      val fieldTypeMap    = NebulaUtils.getDataSourceFieldType(edgeConfig, space, metaProvider)
       val streamFlag = data.isStreaming
       val edgeFrame = data
         .filter { row =>
@@ -213,25 +235,25 @@ class EdgeProcessor(spark: SparkSession,
   }
 
   /**
-    * filter and check row data for edge, if streaming only print log
-    */
+   * filter and check row data for edge, if streaming only print log
+   */
   def isEdgeValid(row: Row,
                   edgeConfig: EdgeConfigEntry,
                   streamFlag: Boolean,
                   isVidStringType: Boolean): Boolean = {
     val sourceFlag = checkField(edgeConfig.sourceField,
-                                "source_field",
-                                row,
-                                edgeConfig.sourcePolicy,
-                                streamFlag,
-                                isVidStringType)
+      "source_field",
+      row,
+      edgeConfig.sourcePolicy,
+      streamFlag,
+      isVidStringType)
 
     val targetFlag = checkField(edgeConfig.targetField,
-                                "target_field",
-                                row,
-                                edgeConfig.targetPolicy,
-                                streamFlag,
-                                isVidStringType)
+      "target_field",
+      row,
+      edgeConfig.targetPolicy,
+      streamFlag,
+      isVidStringType)
 
     val edgeRankFlag = if (edgeConfig.rankingField.isDefined) {
       val index = row.schema.fieldIndex(edgeConfig.rankingField.get)
@@ -241,7 +263,7 @@ class EdgeProcessor(spark: SparkSession,
       val ranking = row.get(index).toString.trim
       if (!NebulaUtils.isNumic(ranking)) {
         printChoice(streamFlag,
-                    s"Not support non-Numeric type for ranking field.your row data is $row")
+          s"Not support non-Numeric type for ranking field.your row data is $row")
         false
       } else true
     } else true
@@ -249,8 +271,8 @@ class EdgeProcessor(spark: SparkSession,
   }
 
   /**
-    * check if edge source id and target id valid
-    */
+   * check if edge source id and target id valid
+   */
   def checkField(field: String,
                  fieldType: String,
                  row: Row,
@@ -272,7 +294,7 @@ class EdgeProcessor(spark: SparkSession,
     val idFlag = fieldValue.isDefined
     val policyFlag =
       if (idFlag && policy.isEmpty && !isVidStringType
-          && !NebulaUtils.isNumic(fieldValue.get)) {
+        && !NebulaUtils.isNumic(fieldValue.get)) {
         printChoice(
           streamFlag,
           s"space vidType is int, but your $fieldType $fieldValue is not numeric.your row data is $row")
@@ -287,24 +309,24 @@ class EdgeProcessor(spark: SparkSession,
   }
 
   /**
-    * convert row data to {@link Edge}
-    */
+   * convert row data to {@link Edge}
+   */
   def convertToEdge(row: Row,
                     edgeConfig: EdgeConfigEntry,
                     isVidStringType: Boolean,
                     fieldKeys: List[String],
                     fieldTypeMap: Map[String, Int]): Edge = {
     val sourceField = processField(edgeConfig.sourceField,
-                                   "source_field",
-                                   row,
-                                   edgeConfig.sourcePolicy,
-                                   isVidStringType)
+      "source_field",
+      row,
+      edgeConfig.sourcePolicy,
+      isVidStringType)
 
     val targetField = processField(edgeConfig.targetField,
-                                   "target_field",
-                                   row,
-                                   edgeConfig.targetPolicy,
-                                   isVidStringType)
+      "target_field",
+      row,
+      edgeConfig.targetPolicy,
+      isVidStringType)
 
     val values = for {
       property <- fieldKeys if property.trim.length != 0
@@ -320,8 +342,8 @@ class EdgeProcessor(spark: SparkSession,
   }
 
   /**
-    * process edge source and target field
-    */
+   * process edge source and target field
+   */
   def processField(field: String,
                    fieldType: String,
                    row: Row,
@@ -344,15 +366,30 @@ class EdgeProcessor(spark: SparkSession,
   }
 
   /**
-    * encode edge
-    */
+   * encode edge
+   */
   def encodeEdge(row: Row,
                  partitionNum: Int,
                  vidType: VidType.Value,
                  spaceVidLen: Int,
-                 edgeItem: EdgeItem,
-                 fieldTypeMap: Map[String, Int]): (Array[Byte], Array[Byte], Array[Byte]) = {
+                 edgeCache: HashMap[String, EdgeItem],
+                 fieldTypeMapCache: HashMap[String, Map[String, Int]]): (Array[Byte], Array[Byte], Array[Byte]) = {
     isEdgeValid(row, edgeConfig, false, vidType == VidType.STRING)
+
+    val edgeIndex: Int = row.schema.fieldIndex(edgeConfig.edgeField)
+    var edgeName: String = row.get(edgeIndex).toString.trim
+    if (edgeName.equals(DEFAULT_EMPTY_VALUE)) {
+      edgeName = "null"
+    }
+    var edgeItem = edgeCache.getOrElse(edgeName, null)
+    if (edgeItem == null) {
+      throw new RuntimeException("edgeCache Get Failed for " + edgeName)
+    }
+
+    var fieldTypeMap = fieldTypeMapCache.getOrElse(edgeName, null)
+    if (fieldTypeMap == null) {
+      throw new RuntimeException("fieldTypeMapCache Get Failed for " + edgeName)
+    }
 
     val srcIndex: Int = row.schema.fieldIndex(edgeConfig.sourceField)
     var srcId: String = row.get(srcIndex).toString.trim
@@ -423,17 +460,17 @@ class EdgeProcessor(spark: SparkSession,
       dstId.getBytes()
     }
     val positiveEdgeKey = codec.edgeKeyByDefaultVer(spaceVidLen,
-                                                    srcPartitionId,
-                                                    srcBytes,
-                                                    edgeItem.getEdge_type,
-                                                    ranking,
-                                                    dstBytes)
+      srcPartitionId,
+      srcBytes,
+      edgeItem.getEdge_type,
+      ranking,
+      dstBytes)
     val reverseEdgeKey = codec.edgeKeyByDefaultVer(spaceVidLen,
-                                                   dstPartitionId,
-                                                   dstBytes,
-                                                   -edgeItem.getEdge_type,
-                                                   ranking,
-                                                   srcBytes)
+      dstPartitionId,
+      dstBytes,
+      -edgeItem.getEdge_type,
+      ranking,
+      srcBytes)
 
     val values = for {
       property <- fieldKeys if property.trim.length != 0

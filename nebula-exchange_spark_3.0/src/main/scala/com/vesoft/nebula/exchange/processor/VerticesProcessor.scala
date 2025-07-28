@@ -108,10 +108,6 @@ class VerticesProcessor(spark: SparkSession,
 
     val timeout         = config.connectionConfig.timeout
     val retry           = config.connectionConfig.retry
-    val metaProvider    = new MetaProvider(address, timeout, retry, config.sslConfig)
-    val fieldTypeMap    = NebulaUtils.getDataSourceFieldType(tagConfig, space, metaProvider)
-    val isVidStringType = metaProvider.getVidType(space) == VidType.STRING
-    val partitionNum    = metaProvider.getPartNumber(space)
     // val spaceid         = metaProvider.getSpaceId(space);
 
     {
@@ -125,13 +121,19 @@ class VerticesProcessor(spark: SparkSession,
         throw new RuntimeException("Switch Failed for " + switchResult.getErrorMessage)
       }
 
-      val result = graphProvider.submit(session, tagConfig.cmd)
+      val sentence = tagConfig.cmd.format(tagConfig.name)
+      val result = graphProvider.submit(session, sentence)
       if (!result.isSucceeded) {
         throw new RuntimeException("Submit Sentence Failed for " + result.getErrorMessage)
       }
-      LOG.info(s"Submit Sentence Success for ${tagConfig.cmd}")
+      LOG.info(s"Submit Sentence Success for ${sentence}")
       graphProvider.close()
     }
+
+    val metaProvider    = new MetaProvider(address, timeout, retry, config.sslConfig)
+    val fieldTypeMap    = NebulaUtils.getDataSourceFieldType(tagConfig, space, metaProvider)
+    val isVidStringType = metaProvider.getVidType(space) == VidType.STRING
+    val partitionNum    = metaProvider.getPartNumber(space)
 
     if (tagConfig.dataSinkConfigEntry.category == SinkCategory.SST) {
       val fileBaseConfig = tagConfig.dataSinkConfigEntry.asInstanceOf[FileBaseSinkConfigEntry]

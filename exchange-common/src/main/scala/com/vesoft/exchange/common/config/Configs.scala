@@ -430,14 +430,27 @@ object Configs {
         if (hasKafka) {
           throw new IllegalArgumentException("Can not define any other configs when kafka exists")
         }
-        if (!edgeConfig.hasPath("name") ||
-            !edgeConfig.hasPath("type.source") ||
-            !edgeConfig.hasPath("type.sink")) {
-          LOG.error("The `name` and `type`must be specified")
-          break()
+//        if (!edgeConfig.hasPath("name") ||
+//            !edgeConfig.hasPath("type.source") ||
+//            !edgeConfig.hasPath("type.sink")) {
+//          LOG.error("The `name` and `type`must be specified")
+//          break()
+//        }
+        if ((!edgeConfig.hasPath("edge.field") && !edgeConfig.hasPath("name")) ||
+          !edgeConfig.hasPath("type.source") ||
+          !edgeConfig.hasPath("type.sink")) {
+          LOG.error("The `name` and `type` must be specified")
+          throw new IllegalArgumentException("The `name` and `type`must be specified")
         }
 
-        val edgeName = edgeConfig.getString("name")
+        if (edgeConfig.hasPath("edge.field") && edgeConfig.hasPath("name")) {
+          LOG.error("The `name` and `type` area both be specified")
+          throw new IllegalArgumentException("The `name` and `type` are both be specified")
+        }
+
+        val edgeName = getOrElse(edgeConfig, "name", "default_edge")
+        val edgeField = getOrElse(edgeConfig, "edge.field", "")
+
         val fields   = edgeConfig.getStringList("fields").asScala.toList
         val nebulaFields = if (edgeConfig.hasPath("nebula.fields")) {
           edgeConfig.getStringList("nebula.fields").asScala.toList
@@ -519,11 +532,14 @@ object Configs {
 
         val localPath  = getOptOrElse(edgeConfig, "path.local")
         val remotePath = getOptOrElse(edgeConfig, "path.remote")
+        val cmd = getOrElse(edgeConfig, "cmd", "")
 
-        val repartitionWithNebula = getOrElse(edgeConfig, "repartitionWithNebula", false)
+        val repartitionWithNebula = getOrElse(edgeConfig, "repartitionWithNebula", true)
 
         val entry = EdgeConfigEntry(
           edgeName,
+          edgeField,
+          cmd,
           sourceConfig,
           sinkConfig,
           fields,

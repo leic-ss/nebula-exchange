@@ -99,6 +99,8 @@ case class TagConfigEntry(override val name: String,
   * @param checkPointPath
   */
 case class EdgeConfigEntry(override val name: String,
+                           edgeField: String,
+                           cmd: String,
                            override val dataSourceConfigEntry: DataSourceConfigEntry,
                            override val dataSinkConfigEntry: DataSinkConfigEntry,
                            override val fields: List[String],
@@ -123,6 +125,7 @@ case class EdgeConfigEntry(override val name: String,
   override def toString: String = {
     if (isGeo) {
       s"Edge name: $name, " +
+        s"edge field: $edgeField, " +
         s"source: $dataSourceConfigEntry, " +
         s"sink: $dataSinkConfigEntry, " +
         s"latitude: $latitude, " +
@@ -136,6 +139,7 @@ case class EdgeConfigEntry(override val name: String,
         s"partition: $partition."
     } else {
       s"Edge name: $name, " +
+        s"edge field: $edgeField, " +
         s"source: $dataSourceConfigEntry, " +
         s"sink: $dataSinkConfigEntry, " +
         s"source field: $sourceField, " +

@@ -59,7 +59,7 @@ import com.vesoft.nebula.exchange.reader.{
   PulsarReader
 }
 import com.vesoft.exchange.common.processor.ReloadProcessor
-import com.vesoft.nebula.exchange.processor.{EdgeProcessor, VerticesProcessor}
+import com.vesoft.nebula.exchange.processor.{EdgeFieldProcessor, EdgeProcessor, VerticesProcessor}
 import org.apache.log4j.Logger
 import org.apache.spark.SparkConf
 
@@ -232,9 +232,14 @@ object Exchange {
     // import edges
     if (configs.edgesConfig.nonEmpty) {
       for (edgeConfig <- configs.edgesConfig) {
-        LOG.info(s"Processing Edge ${edgeConfig.name}")
-        spark.sparkContext.setJobGroup(edgeConfig.name, s"Edge: ${edgeConfig.name}")
-
+        if (!edgeConfig.edgeField.isEmpty) {
+          LOG.info(s"Processing Edge ${edgeConfig.edgeField}")
+          spark.sparkContext.setJobGroup(edgeConfig.name, s"Edge: ${edgeConfig.edgeField}")
+        } else {
+          LOG.info(s"Processing Edge ${edgeConfig.name}")
+          spark.sparkContext.setJobGroup(edgeConfig.name, s"Edge: ${edgeConfig.name}")
+        }
+        
         val fieldKeys = edgeConfig.fields
         LOG.info(s"field keys: ${fieldKeys.mkString(", ")}")
         val nebulaKeys = edgeConfig.nebulaFields
@@ -250,17 +255,32 @@ object Exchange {
           val batchSuccess = spark.sparkContext.longAccumulator(s"batchSuccess.${edgeConfig.name}")
           val batchFailure = spark.sparkContext.longAccumulator(s"batchFailure.${edgeConfig.name}")
 
-          val processor = new EdgeProcessor(
-            spark,
-            repartition(data.get, edgeConfig.partition, edgeConfig.dataSourceConfigEntry.category),
-            edgeConfig,
-            fieldKeys,
-            nebulaKeys,
-            configs,
-            batchSuccess,
-            batchFailure
-          )
-          processor.process()
+          if (!edgeConfig.edgeField.isEmpty) {
+            val processor = new EdgeFieldProcessor(
+              spark,
+              repartition(data.get, edgeConfig.partition, edgeConfig.dataSourceConfigEntry.category),
+              edgeConfig,
+              fieldKeys,
+              nebulaKeys,
+              configs,
+              batchSuccess,
+              batchFailure
+            )
+            processor.process()
+          } else {
+            val processor = new EdgeProcessor(
+              spark,
+              repartition(data.get, edgeConfig.partition, edgeConfig.dataSourceConfigEntry.category),
+              edgeConfig,
+              fieldKeys,
+              nebulaKeys,
+              configs,
+              batchSuccess,
+              batchFailure
+            )
+            processor.process()
+          }
+
           val costTime = ((System.currentTimeMillis() - startTime) / 1000.0).formatted("%.2f")
           LOG.info(s"import for edge ${edgeConfig.name} cost time: ${costTime} s")
           if (edgeConfig.dataSinkConfigEntry.category == SinkCategory.CLIENT) {

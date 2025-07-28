@@ -30,7 +30,38 @@ object NebulaUtils {
                              metaProvider: MetaProvider): Map[String, Int] = {
     val nebulaFields = sourceConfig.nebulaFields
     val sourceFields = sourceConfig.fields
-    val label        = sourceConfig.name
+    var label        = sourceConfig.name
+
+    var nebulaSchemaMap: Map[String, Integer] = null
+    val dataType: Type.Value                  = metaProvider.getLabelType(space, label)
+    if (dataType == null) {
+      throw new IllegalArgumentException(s"label $label does not exist.")
+    }
+    if (dataType == Type.VERTEX) {
+      nebulaSchemaMap = metaProvider.getTagSchema(space, label)
+    } else {
+      nebulaSchemaMap = metaProvider.getEdgeSchema(space, label)
+    }
+
+    val sourceSchemaMap: mutable.Map[String, Int] = mutable.HashMap[String, Int]()
+    for (i <- nebulaFields.indices) {
+      val nebulaField = nebulaFields.get(i)
+      if (!nebulaSchemaMap.contains(nebulaField)) {
+        throw new IllegalArgumentException(
+          s"property name $nebulaField is not defined in NebulaGraph")
+      }
+      sourceSchemaMap.put(sourceFields.get(i), nebulaSchemaMap(nebulaField))
+    }
+    sourceSchemaMap.toMap
+  }
+
+  def getEdgeFieldDataSourceFieldType(sourceConfig: SchemaConfigEntry,
+                             space: String,
+                                      label: String,
+                             metaProvider: MetaProvider): Map[String, Int] = {
+    val nebulaFields = sourceConfig.nebulaFields
+    val sourceFields = sourceConfig.fields
+    // var label        = edgeConfig.edgeField
 
     var nebulaSchemaMap: Map[String, Integer] = null
     val dataType: Type.Value                  = metaProvider.getLabelType(space, label)
