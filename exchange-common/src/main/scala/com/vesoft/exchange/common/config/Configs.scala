@@ -648,7 +648,8 @@ object Configs {
                                   Some(separator),
                                   Some(header))
       case SourceCategory.HIVE =>
-        val localDateTime = LocalDateTime.now().minusDays(1);
+        var days = getOrElse(config, "days.before", 0)
+        val localDateTime = LocalDateTime.now().minusDays(days);
         val dataTimeFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd")
         val dtstr = dataTimeFormat.format(localDateTime)
         val conditions = "dt = '" + dtstr + "'"
