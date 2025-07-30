@@ -160,9 +160,10 @@ class EdgeFieldProcessor(spark: SparkSession,
       val distintData = if (edgeConfig.rankingField.isDefined) {
         data.dropDuplicates(edgeConfig.sourceField,
           edgeConfig.targetField,
+          edgeConfig.edgeField,
           edgeConfig.rankingField.get)
       } else {
-        data.dropDuplicates(edgeConfig.sourceField, edgeConfig.targetField)
+        data.dropDuplicates(edgeConfig.sourceField, edgeConfig.targetField, edgeConfig.edgeField)
       }
       var sstKeyValueData = distintData
         .mapPartitions { iter =>
