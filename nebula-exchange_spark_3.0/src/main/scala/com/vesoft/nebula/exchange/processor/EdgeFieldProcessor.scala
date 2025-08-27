@@ -52,16 +52,6 @@ class EdgeFieldProcessor(spark: SparkSession,
   private[this] val DEFAULT_MIN_CELL_LEVEL = 10
   private[this] val DEFAULT_MAX_CELL_LEVEL = 18
 
-  private[this] mutableMap = mutable.Map(
-                              "主持人" -> "resenter",
-                              "事业_前队友" -> "Career_Former_Teammate",
-                              "事业_所属组合" -> "Career_Affiliation",
-                              "事业_搭档" -> "Career_Partner",
-                              "事业_经纪人" -> "Career_Agent",
-                              "代表作" -> "Representative_Work",
-
-                              )
-
   private def processEachPartition(iterator: Iterator[Edge]): Unit = {
     val graphProvider =
       new GraphProvider(config.databaseConfig.getGraphAddress,

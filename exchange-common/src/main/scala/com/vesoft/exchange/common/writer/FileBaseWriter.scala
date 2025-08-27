@@ -93,6 +93,24 @@ class GenerateSstFile extends Serializable {
         if (part <= 0) {
           part = part + partitionNum
         }
+
+        var srcid = ByteBuffer
+          .wrap(key, 4, 8)
+          .order(ByteOrder.nativeOrder)
+          .getLong
+
+        var edgetype = ByteBuffer
+          .wrap(key, 4 + 8, 4)
+          .order(ByteOrder.nativeOrder)
+          .getInt
+
+        var dstid = ByteBuffer
+          .wrap(key, 16 + 8, 8)
+          .order(ByteOrder.nativeOrder)
+          .getLong
+
+        LOG.info(s"EdgeKey3 ${part} ${srcid} -> ${dstid} ${edgetype}")
+
         // extract the prefix value for vertex key, there's two values
         // 1: vertex key with tag, 7: vertex key without tag
         val prefix: Int = ByteBuffer.wrap(key, 0, 1).get

@@ -6,6 +6,7 @@
 package com.vesoft.nebula.exchange.processor
 
 import java.nio.ByteOrder
+import java.nio.ByteBuffer
 
 import com.google.common.geometry.{S2CellId, S2LatLng}
 import com.vesoft.exchange.common.{ErrorHandler, GraphProvider, MetaProvider, VidType}
@@ -154,7 +155,35 @@ class EdgeProcessor(spark: SparkSession,
           List((line._1, line._3), (line._2, line._3))
         })(Encoders.tuple(Encoders.BINARY, Encoders.BINARY))
 
+      sstKeyValueData.toDF("key", "value").collect().foreach( row => {
+          val key   = row.getAs[Array[Byte]](0)
+          val value = row.getAs[Array[Byte]](1)
+          var part = ByteBuffer
+            .wrap(key, 0, 4)
+            .order(ByteOrder.nativeOrder)
+            .getInt >> 8
+          if (part <= 0) {
+            part = part + partitionNum
+          }
 
+          var srcid = ByteBuffer
+            .wrap(key, 4, spaceVidLen)
+            .order(ByteOrder.nativeOrder)
+            .getLong
+
+          var edgetype = ByteBuffer
+            .wrap(key, 4 + spaceVidLen, 4)
+            .order(ByteOrder.nativeOrder)
+            .getInt
+
+          var dstid = ByteBuffer
+            .wrap(key, 16 + spaceVidLen, spaceVidLen)
+            .order(ByteOrder.nativeOrder)
+            .getLong
+
+          LOG.info(s"EdgeKey ${part} ${srcid} -> ${dstid} ${edgetype}")
+        }
+      )
 
       // repartition dataframe according to nebula part, to make sure sst files for one part has no overlap
       if (edgeConfig.repartitionWithNebula) {
@@ -162,6 +191,36 @@ class EdgeProcessor(spark: SparkSession,
       }
 
       var taskid = spark.conf.get("spark.hadoop.lineage.das.execId").toLong;
+
+      sstKeyValueData.toDF("key", "value").collect().foreach( row => {
+        val key   = row.getAs[Array[Byte]](0)
+        val value = row.getAs[Array[Byte]](1)
+        var part = ByteBuffer
+          .wrap(key, 0, 4)
+          .order(ByteOrder.nativeOrder)
+          .getInt >> 8
+        if (part <= 0) {
+          part = part + partitionNum
+        }
+
+        var srcid = ByteBuffer
+          .wrap(key, 4, spaceVidLen)
+          .order(ByteOrder.nativeOrder)
+          .getLong
+
+        var edgetype = ByteBuffer
+          .wrap(key, 4 + spaceVidLen, 4)
+          .order(ByteOrder.nativeOrder)
+          .getInt
+
+        var dstid = ByteBuffer
+          .wrap(key, 18 + spaceVidLen, spaceVidLen)
+          .order(ByteOrder.nativeOrder)
+          .getLong
+
+        LOG.info(s"EdgeKey2 ${part} ${srcid} -> ${dstid} ${edgetype}")
+      }
+      )
 
       sstKeyValueData
         .toDF("key", "value")
