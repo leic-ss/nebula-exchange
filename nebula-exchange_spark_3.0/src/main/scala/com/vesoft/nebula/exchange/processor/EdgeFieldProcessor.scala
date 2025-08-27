@@ -52,6 +52,16 @@ class EdgeFieldProcessor(spark: SparkSession,
   private[this] val DEFAULT_MIN_CELL_LEVEL = 10
   private[this] val DEFAULT_MAX_CELL_LEVEL = 18
 
+  private[this] mutableMap = mutable.Map(
+                              "主持人" -> "resenter",
+                              "事业_前队友" -> "Career_Former_Teammate",
+                              "事业_所属组合" -> "Career_Affiliation",
+                              "事业_搭档" -> "Career_Partner",
+                              "事业_经纪人" -> "Career_Agent",
+                              "代表作" -> "Representative_Work",
+
+                              )
+
   private def processEachPartition(iterator: Iterator[Edge]): Unit = {
     val graphProvider =
       new GraphProvider(config.databaseConfig.getGraphAddress,
@@ -120,7 +130,7 @@ class EdgeFieldProcessor(spark: SparkSession,
     if (edgeConfig.dataSinkConfigEntry.category == SinkCategory.SST) {
       val fileBaseConfig = edgeConfig.dataSinkConfigEntry.asInstanceOf[FileBaseSinkConfigEntry]
       val namenode       = fileBaseConfig.fsName.orNull
-      val edgeName       = edgeConfig.name
+      // val edgeName       = edgeConfig.name
 
       val vidType     = metaProvider.getVidType(space)
       val spaceVidLen = metaProvider.getSpaceVidLen(space)
@@ -142,7 +152,7 @@ class EdgeFieldProcessor(spark: SparkSession,
             val sentence = edgeConfig.cmd.format(edgename)
             val result = graphProvider.submit(session, sentence)
             if (!result.isSucceeded) {
-              throw new RuntimeException("Submit Sentence Failed for " + result.getErrorMessage)
+              throw new RuntimeException("Submit Sentence " + sentence + " Failed for " + result.getErrorMessage)
             }
             LOG.info(s"Submit Sentence Success for ${sentence}")
 
@@ -476,7 +486,7 @@ class EdgeFieldProcessor(spark: SparkSession,
     val values = for {
       property <- fieldKeys if property.trim.length != 0
     } yield
-      extraValueForSST(row, property, fieldTypeMap)
+      extraValueForSST(row, edgeConfig.dt, property, fieldTypeMap)
         .asInstanceOf[AnyRef]
 
     val edgeValue = codec.encodeEdge(edgeItem, nebulaKeys.asJava, values.asJava)

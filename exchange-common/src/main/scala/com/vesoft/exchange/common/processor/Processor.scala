@@ -86,7 +86,11 @@ trait Processor extends Serializable {
     }
   }
 
-  def extraValueForSST(row: Row, field: String, fieldTypeMap: Map[String, Int]): Any = {
+  def extraValueForSST(row: Row, dt: String, field: String, fieldTypeMap: Map[String, Int]): Any = {
+    if (field.equals("dt")) {
+      if(!dt.isEmpty) return dt
+    }
+
     val index = row.schema.fieldIndex(field)
     if (row.isNullAt(index)) {
       val nullVal = new Value()

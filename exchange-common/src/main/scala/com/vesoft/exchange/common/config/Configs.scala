@@ -393,6 +393,11 @@ object Configs {
 
         val cmd = getOrElse(tagConfig, "cmd", "")
 
+        var dt = getOrElse(config, "dt", "")
+        if (dt.isEmpty) {
+          dt = getOrElse(tagConfig, "dt", "")
+        }
+
         val batch = getOrElse(tagConfig, "batch", DEFAULT_BATCH)
         val checkPointPath =
           if (tagConfig.hasPath("check_point_path")) Some(tagConfig.getString("check_point_path"))
@@ -407,6 +412,7 @@ object Configs {
         LOG.info(s"name ${tagName}  batch ${batch}")
         val entry = TagConfigEntry(tagName,
                                    cmd,
+                                   dt,
                                    sourceConfig,
                                    sinkConfig,
                                    fields,
@@ -534,12 +540,18 @@ object Configs {
         val remotePath = getOptOrElse(edgeConfig, "path.remote")
         val cmd = getOrElse(edgeConfig, "cmd", "")
 
+        var dt = getOrElse(config, "dt", "")
+        if (dt.isEmpty) {
+          dt = getOrElse(edgeConfig, "dt", "")
+        }
+
         val repartitionWithNebula = getOrElse(edgeConfig, "repartitionWithNebula", true)
 
         val entry = EdgeConfigEntry(
           edgeName,
           edgeField,
           cmd,
+          dt,
           sourceConfig,
           sinkConfig,
           fields,
@@ -648,12 +660,20 @@ object Configs {
                                   Some(separator),
                                   Some(header))
       case SourceCategory.HIVE =>
-        var days = getOrElse(config, "days.before", 0)
-        val localDateTime = LocalDateTime.now().minusDays(days);
-        val dataTimeFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd")
-        val dtstr = dataTimeFormat.format(localDateTime)
-        val conditions = "dt = '" + dtstr + "'"
         var sentence = config.getString("exec")
+        var conditions = ""
+        if (config.hasPath("days.before")) {
+          var days = getOrElse(config, "days.before", 0)
+          val localDateTime = LocalDateTime.now().minusDays(days);
+          val dataTimeFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+          val dtstr = dataTimeFormat.format(localDateTime)
+          if (sentence.contains("where")) {
+            conditions = "and dt = '" + dtstr + "'";
+          } else {
+            conditions = "where dt = '" + dtstr + "'"
+          }
+        }
+
         HiveSourceConfigEntry(SourceCategory.HIVE, sentence.format(conditions))
       case SourceCategory.NEO4J =>
         val name = config.getString("name")

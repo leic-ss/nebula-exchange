@@ -148,6 +148,9 @@ class VerticesProcessor(spark: SparkSession,
       var sstKeyValueData = if (tagConfig.enableTagless) {
         data
           .dropDuplicates(tagConfig.vertexField)
+          .filter { row =>
+            isVertexValid2(row, tagConfig, isVidStringType)
+          }
           .mapPartitions { iter =>
             iter.map { row =>
               encodeVertexForTageless(row,
@@ -164,6 +167,9 @@ class VerticesProcessor(spark: SparkSession,
       } else {
         data
           .dropDuplicates(tagConfig.vertexField)
+          .filter { row =>
+            isVertexValid2(row, tagConfig, isVidStringType)
+          }
           .mapPartitions { iter =>
             iter.map { row =>
               encodeVertex(row, partitionNum, vidType, spaceVidLen, tagItem, fieldTypeMap)
@@ -250,6 +256,32 @@ class VerticesProcessor(spark: SparkSession,
       printChoice(
         streamFlag,
         s"only int vidType can use policy, but your vidType is FIXED_STRING.your row data is $row")
+      return false
+    }
+    true
+  }
+
+  def isVertexValid2(row: Row,
+                    tagConfig: TagConfigEntry,
+                    isVidStringType: Boolean): Boolean = {
+    val index = row.schema.fieldIndex(tagConfig.vertexField)
+    if (index < 0 || row.isNullAt(index)) {
+      return false
+    }
+
+    val vertexId = row.get(index).toString
+    if (vertexId.equals(DEFAULT_EMPTY_VALUE)) {
+      return false
+    }
+    if (vertexId == "") {
+      return false
+    }
+    // process int type vid
+    if (tagConfig.vertexPolicy.isEmpty && !isVidStringType && !NebulaUtils.isNumic(vertexId)) {
+      return false
+    }
+    // process string type vid
+    if (tagConfig.vertexPolicy.isDefined && isVidStringType) {
       return false
     }
     true
@@ -355,7 +387,7 @@ class VerticesProcessor(spark: SparkSession,
     val values = for {
       property <- fieldKeys if property.trim.length != 0
     } yield
-      extraValueForSST(row, property, fieldTypeMap)
+      extraValueForSST(row, tagConfig.dt, property, fieldTypeMap)
         .asInstanceOf[AnyRef]
     val vertexValue     = codec.encodeTag(tagItem, nebulaKeys.asJava, values.asJava)
     val orphanVertexKey = codec.orphanVertexKey(spaceVidLen, partitionId, vidBytes)

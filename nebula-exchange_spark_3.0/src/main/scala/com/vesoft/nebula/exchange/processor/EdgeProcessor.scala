@@ -154,6 +154,8 @@ class EdgeProcessor(spark: SparkSession,
           List((line._1, line._3), (line._2, line._3))
         })(Encoders.tuple(Encoders.BINARY, Encoders.BINARY))
 
+
+
       // repartition dataframe according to nebula part, to make sure sst files for one part has no overlap
       if (edgeConfig.repartitionWithNebula) {
         sstKeyValueData = customRepartition(spark, sstKeyValueData, partitionNum)
@@ -438,7 +440,7 @@ class EdgeProcessor(spark: SparkSession,
     val values = for {
       property <- fieldKeys if property.trim.length != 0
     } yield
-      extraValueForSST(row, property, fieldTypeMap)
+      extraValueForSST(row, edgeConfig.dt, property, fieldTypeMap)
         .asInstanceOf[AnyRef]
 
     val edgeValue = codec.encodeEdge(edgeItem, nebulaKeys.asJava, values.asJava)
