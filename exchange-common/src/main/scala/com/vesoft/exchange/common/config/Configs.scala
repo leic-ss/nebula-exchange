@@ -544,6 +544,9 @@ object Configs {
         if (dt.isEmpty) {
           dt = getOrElse(edgeConfig, "dt", "")
         }
+        var srcnode = getOrElse(edgeConfig, "srcnode", "");
+        var dstnode = getOrElse(edgeConfig, "dstnode", "");
+        var rankval = getOrElse(edgeConfig, "rankval", 0);
 
         val repartitionWithNebula = getOrElse(edgeConfig, "repartitionWithNebula", true)
 
@@ -552,6 +555,9 @@ object Configs {
           edgeField,
           cmd,
           dt,
+          srcnode,
+          dstnode,
+          rankval,
           sourceConfig,
           sinkConfig,
           fields,

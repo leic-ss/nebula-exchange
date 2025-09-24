@@ -5,7 +5,16 @@
 
 package com.vesoft.nebula.exchange.processor
 
+import java.io.BufferedReader
+import java.io.IOException
+import java.io.InputStream
+import java.io.InputStreamReader
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.URL
+
 import java.nio.ByteOrder
+import org.json._
 
 import com.google.common.geometry.{S2CellId, S2LatLng}
 import com.vesoft.exchange.common.{ErrorHandler, GraphProvider, MetaProvider, VidType}
@@ -121,13 +130,58 @@ class EdgeProcessor(spark: SparkSession,
       }
       LOG.info(s"Submit Sentence Success for ${sentence}")
       graphProvider.close()
+
+      /* start http post */
+      val urlstrBuilder = new StringBuilder
+      urlstrBuilder.append("http://10.48.39.250:8108/api/v1/relation/create")
+      val urlString = urlstrBuilder.toString()
+      LOG.warn(s"urlString ${urlString}")
+
+      val url = new URL(urlString)
+      val connection = url.openConnection().asInstanceOf[HttpURLConnection]
+      connection.setRequestMethod("POST")
+      connection.setRequestProperty("Content-Type", "application/json")
+      connection.setDoOutput(true)
+      connection.setUseCaches(false)
+
+      val jsonobj:JSONObject =new JSONObject()
+      jsonobj.put("srcnode", edgeConfig.srcnode)
+      jsonobj.put("dstnode", edgeConfig.dstnode)
+      jsonobj.append("edges", edgeConfig.name)
+      jsonobj.put("rankval", edgeConfig.rankval)
+
+      val output = new OutputStreamWriter(connection.getOutputStream)
+      output.write(jsonobj.toString())
+      output.close()
+
+      val responseCode = connection.getResponseCode()
+      LOG.warn(s"responseCode ${responseCode}")
+
+      val strBuilder = new StringBuilder
+      if (responseCode == HttpURLConnection.HTTP_OK) {
+        val reader = new BufferedReader(new InputStreamReader(connection.getInputStream))
+        var line: String = reader.readLine()
+        while (line != null) {
+          strBuilder.append(line)
+          line = reader.readLine()
+        }
+        reader.close()
+      } else {
+        LOG.error(s"relation create responseCode ${responseCode}")
+        // sys.exit(-1)
+      }
+      connection.disconnect()
+
+      val content = strBuilder.toString()
+      LOG.warn(s"relation create response: ${content}")
+      /* end http post */
     }
 
     val metaProvider    = new MetaProvider(address, timeout, retry, config.sslConfig)
     val fieldTypeMap    = NebulaUtils.getDataSourceFieldType(edgeConfig, space, metaProvider)
     val isVidStringType = metaProvider.getVidType(space) == VidType.STRING
     val partitionNum    = metaProvider.getPartNumber(space)
-    
+
     if (edgeConfig.dataSinkConfigEntry.category == SinkCategory.SST) {
       val fileBaseConfig = edgeConfig.dataSinkConfigEntry.asInstanceOf[FileBaseSinkConfigEntry]
       val namenode       = fileBaseConfig.fsName.orNull
@@ -153,8 +207,6 @@ class EdgeProcessor(spark: SparkSession,
         .flatMap(line => {
           List((line._1, line._3), (line._2, line._3))
         })(Encoders.tuple(Encoders.BINARY, Encoders.BINARY))
-
-
 
       // repartition dataframe according to nebula part, to make sure sst files for one part has no overlap
       if (edgeConfig.repartitionWithNebula) {
