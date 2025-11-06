@@ -145,6 +145,7 @@ class EdgeProcessor(spark: SparkSession,
       connection.setUseCaches(false)
 
       val jsonobj:JSONObject =new JSONObject()
+      jsonobj.put("space", space);
       jsonobj.put("srcnode", edgeConfig.srcnode)
       jsonobj.put("dstnode", edgeConfig.dstnode)
       jsonobj.append("edges", edgeConfig.name)
