@@ -86,9 +86,18 @@ trait Processor extends Serializable {
     }
   }
 
-  def extraValueForSST(row: Row, dt: String, field: String, fieldTypeMap: Map[String, Int]): Any = {
+  def extraEdgeValueForSST(row: Row, dt: String, begin: String, end: String, direction: Int, field: String, fieldTypeMap: Map[String, Int]): Any = {
     if (field.equals("dt")) {
       if(!dt.isEmpty) return dt
+    }
+    if (field.equals("begin")) {
+      if(!begin.isEmpty) return begin
+    }
+    if (field.equals("end")) {
+      if(!end.isEmpty) return end
+    }
+    if (field.equals("direction")) {
+      return direction
     }
 
     val index = row.schema.fieldIndex(field)
@@ -169,6 +178,109 @@ trait Processor extends Serializable {
                      timeValues(1).toByte,
                      sec,
                      microsec)
+      }
+      case PropertyType.TIMESTAMP => {
+        val value = row.get(index).toString.trim
+        if (!NebulaUtils.isNumic(value)) {
+          throw new IllegalArgumentException(
+            s"timestamp only support long type, your value is ${value}")
+        }
+        value.toLong
+      }
+      case PropertyType.GEOGRAPHY => {
+        val wkt     = row.get(index).toString.trim
+        val jtsGeom = new org.locationtech.jts.io.WKTReader().read(wkt)
+        convertJTSGeometryToGeography(jtsGeom)
+      }
+      case PropertyType.DURATION => {
+        throw new IllegalArgumentException("do not support data type duration.")
+      }
+    }
+  }
+
+  def extraValueForSST(row: Row, dt: String, field: String, fieldTypeMap: Map[String, Int]): Any = {
+    if (field.equals("dt")) {
+      if(!dt.isEmpty) return dt
+    }
+
+    val index = row.schema.fieldIndex(field)
+    if (row.isNullAt(index)) {
+      val nullVal = new Value()
+      nullVal.setNVal(NullType.__NULL__)
+      return nullVal
+    }
+
+    PropertyType.findByValue(fieldTypeMap(field)) match {
+      case PropertyType.UNKNOWN =>
+        throw new IllegalArgumentException("date type in nebula is UNKNOWN.")
+      case PropertyType.STRING | PropertyType.FIXED_STRING => {
+        val value = row.get(index).toString.trim
+        if (value.equals(DEFAULT_EMPTY_VALUE)) "" else value
+      }
+      case PropertyType.BOOL                     => row.get(index).toString.trim.toBoolean
+      case PropertyType.DOUBLE                   => row.get(index).toString.trim.toDouble
+      case PropertyType.FLOAT                    => row.get(index).toString.trim.toFloat
+      case PropertyType.INT8                     => row.get(index).toString.trim.toByte
+      case PropertyType.INT16                    => row.get(index).toString.trim.toShort
+      case PropertyType.INT32                    => row.get(index).toString.trim.toInt
+      case PropertyType.INT64 | PropertyType.VID => row.get(index).toString.trim.toLong
+      case PropertyType.TIME => {
+        val values = row.get(index).toString.trim.split(":")
+        if (values.size < 3) {
+          throw new UnsupportedOperationException(
+            s"wrong format for time value: ${row.get(index)}, correct format is 12:00:00:0000")
+        }
+        val secs: Array[String] = values(2).split("\\.")
+        val sec: Byte           = secs(0).toByte
+        val microSec: Int       = if (secs.length == 2) secs(1).toInt else 0
+        new Time(values(0).toByte, values(1).toByte, sec, microSec)
+      }
+      case PropertyType.DATE => {
+        val values = row.get(index).toString.trim.split("-")
+        if (values.size < 3) {
+          throw new UnsupportedOperationException(
+            s"wrong format for date value: ${row.get(index)}, correct format is 2020-01-01")
+        }
+        new Date(values(0).toShort, values(1).toByte, values(2).toByte)
+      }
+      case PropertyType.DATETIME => {
+        val rowValue                     = row.get(index).toString.trim
+        var dateTimeValue: Array[String] = null
+        if (rowValue.contains("T")) {
+          dateTimeValue = rowValue.split("T")
+        } else if (rowValue.trim.contains(" ")) {
+          dateTimeValue = rowValue.trim.split(" ")
+        } else {
+          throw new UnsupportedOperationException(
+            s"wrong format for datetime value: $rowValue, " +
+              s"correct format is 2020-01-01T12:00:00.0000 or 2020-01-01 12:00:00.0000")
+        }
+
+        if (dateTimeValue.length < 2) {
+          throw new UnsupportedOperationException(
+            s"wrong format for datetime value: $rowValue, " +
+              s"correct format is 2020-01-01T12:00:00.0000 or 2020-01-01 12:00:00.0000")
+        }
+
+        val dateValues = dateTimeValue(0).split("-")
+        val timeValues = dateTimeValue(1).split(":")
+
+        if (dateValues.size < 3 || timeValues.size < 3) {
+          throw new UnsupportedOperationException(
+            s"wrong format for datetime value: $rowValue, " +
+              s"correct format is 2020-01-01T12:00:00.0000 or 2020-01-01 12:00:00")
+        }
+
+        val secs: Array[String] = timeValues(2).split("\\.")
+        val sec: Byte           = secs(0).toByte
+        val microsec: Int       = if (secs.length == 2) secs(1).toInt else 0
+        new DateTime(dateValues(0).toShort,
+          dateValues(1).toByte,
+          dateValues(2).toByte,
+          timeValues(0).toByte,
+          timeValues(1).toByte,
+          sec,
+          microsec)
       }
       case PropertyType.TIMESTAMP => {
         val value = row.get(index).toString.trim

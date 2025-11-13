@@ -204,9 +204,9 @@ class EdgeProcessor(spark: SparkSession,
           iter.map { row =>
             encodeEdge(row, partitionNum, vidType, spaceVidLen, edgeItem, fieldTypeMap)
           }
-        }(Encoders.tuple(Encoders.BINARY, Encoders.BINARY, Encoders.BINARY))
+        }(Encoders.tuple(Encoders.BINARY, Encoders.BINARY, Encoders.BINARY, Encoders.BINARY))
         .flatMap(line => {
-          List((line._1, line._3), (line._2, line._3))
+          List((line._1, line._3), (line._2, line._4))
         })(Encoders.tuple(Encoders.BINARY, Encoders.BINARY))
 
       // repartition dataframe according to nebula part, to make sure sst files for one part has no overlap
@@ -406,7 +406,7 @@ class EdgeProcessor(spark: SparkSession,
                  vidType: VidType.Value,
                  spaceVidLen: Int,
                  edgeItem: EdgeItem,
-                 fieldTypeMap: Map[String, Int]): (Array[Byte], Array[Byte], Array[Byte]) = {
+                 fieldTypeMap: Map[String, Int]): (Array[Byte], Array[Byte], Array[Byte], Array[Byte]) = {
     isEdgeValid(row, edgeConfig, false, vidType == VidType.STRING)
 
     val srcIndex: Int = row.schema.fieldIndex(edgeConfig.sourceField)
@@ -490,13 +490,20 @@ class EdgeProcessor(spark: SparkSession,
                                                    ranking,
                                                    srcBytes)
 
-    val values = for {
+    val positiveValues = for {
       property <- fieldKeys if property.trim.length != 0
     } yield
-      extraValueForSST(row, edgeConfig.dt, property, fieldTypeMap)
+      extraEdgeValueForSST(row, edgeConfig.dt, edgeConfig.srcnode, edgeConfig.dstnode, 1, property, fieldTypeMap)
         .asInstanceOf[AnyRef]
 
-    val edgeValue = codec.encodeEdge(edgeItem, nebulaKeys.asJava, values.asJava)
-    (positiveEdgeKey, reverseEdgeKey, edgeValue)
+    val reverseValues = for {
+      property <- fieldKeys if property.trim.length != 0
+    } yield
+      extraEdgeValueForSST(row, edgeConfig.dt, edgeConfig.dstnode, edgeConfig.srcnode, -1, property, fieldTypeMap)
+        .asInstanceOf[AnyRef]
+
+    val positiveEdgeValue = codec.encodeEdge(edgeItem, nebulaKeys.asJava, positiveValues.asJava)
+    val reverseEdgeValue = codec.encodeEdge(edgeItem, nebulaKeys.asJava, reverseValues.asJava)
+    (positiveEdgeKey, reverseEdgeKey, positiveEdgeValue, reverseEdgeValue)
   }
 }
